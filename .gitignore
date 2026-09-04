@@ -1,0 +1,11 @@
+node_modules/
+.env
+.env.*.local
+apps/server/data/
+apps/server/dist/
+apps/mobile/.expo/
+apps/mobile/dist/
+apps/mobile/ios/
+apps/mobile/android/
+*.tsbuildinfo
+.DS_Store
