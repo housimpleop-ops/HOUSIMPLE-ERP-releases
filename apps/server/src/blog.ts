@@ -1,12 +1,12 @@
 import * as cheerio from "cheerio";
 import type { SearchResult } from "./schema.js";
-import { HttpError } from "./util.js";
+import { fetchWithTimeout, HttpError } from "./util.js";
 
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 
 async function fetchHtml(url: string): Promise<string> {
-  const res = await fetch(url, { headers: { "User-Agent": UA, "Accept-Language": "ko-KR,ko;q=0.9" }, redirect: "follow" });
+  const res = await fetchWithTimeout(url, { headers: { "User-Agent": UA, "Accept-Language": "ko-KR,ko;q=0.9" }, redirect: "follow" });
   if (!res.ok) throw new HttpError(502, `페이지 요청 실패: ${res.status} ${url}`);
   return res.text();
 }
@@ -101,4 +101,48 @@ export async function extractBlog(inputUrl: string): Promise<BlogExtract> {
   const text = [ld ? `[구조화 데이터 JSON-LD]\n${ld}` : "", `[본문]\n${body.slice(0, 20000)}`].filter(Boolean).join("\n\n");
   if (text.length < 80) throw new HttpError(422, "본문을 읽을 수 없습니다 (로그인 필요 또는 차단된 페이지일 수 있음)");
   return { url: inputUrl, siteName, title, author, thumbnail, text };
+}
+
+/**
+ * 네이버 블로그 검색 (공식 오픈API).
+ * 파싱이 아니라 정식 API이므로 차단 위험이 없다.
+ * 키가 없으면 빈 배열을 돌려주고 조용히 건너뛴다.
+ */
+export async function searchNaverBlog(query: string, max = 10): Promise<SearchResult[]> {
+  const id = process.env.NAVER_CLIENT_ID;
+  const secret = process.env.NAVER_CLIENT_SECRET;
+  if (!id || !secret) return [];
+
+  const q = /레시피|만들기|요리/.test(query) ? query : `${query} 레시피`;
+  const params = new URLSearchParams({ query: q, display: String(max), sort: "sim" });
+  const res = await fetchWithTimeout(`https://openapi.naver.com/v1/search/blog.json?${params}`, {
+    headers: { "X-Naver-Client-Id": id, "X-Naver-Client-Secret": secret },
+  });
+  if (!res.ok) throw new HttpError(502, `네이버 검색 실패: ${res.status}`);
+  const data = (await res.json()) as {
+    items: { title: string; link: string; description: string; bloggername: string }[];
+  };
+  return data.items.map((i) => ({
+    id: i.link,
+    type: "blog" as const,
+    title: stripTags(i.title),
+    thumbnail: "",
+    author: i.bloggername,
+    url: i.link,
+    durationSec: null,
+    description: stripTags(i.description),
+  }));
+}
+
+/** 네이버 검색 결과의 <b> 강조 태그와 HTML 엔티티를 없앤다 */
+export function stripTags(s: string): string {
+  return s
+    .replace(/<[^>]+>/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&nbsp;/g, " ")
+    .trim();
 }

@@ -68,3 +68,22 @@ export class HttpError extends Error {
     super(message);
   }
 }
+
+/**
+ * 제한 시간이 걸린 fetch.
+ * 외부 사이트가 응답하지 않을 때 요청 전체가 매달리는 것을 막는다.
+ */
+export async function fetchWithTimeout(
+  url: string,
+  init: RequestInit = {},
+  timeoutMs = 12000,
+): Promise<Response> {
+  try {
+    return await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+  } catch (e) {
+    if (e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError")) {
+      throw new HttpError(504, `응답 시간 초과 (${new URL(url).hostname})`);
+    }
+    throw new HttpError(502, `연결 실패 (${new URL(url).hostname})`);
+  }
+}

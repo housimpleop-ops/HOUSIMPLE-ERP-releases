@@ -66,3 +66,26 @@ export type SearchResult = {
   durationSec: number | null;
   description: string;
 };
+
+/**
+ * 폰이 직접 긁어온 원문을 서버로 보낼 때의 형태.
+ * 서버는 이 내용을 Claude로 구조화만 한다 (외부 사이트에 접속하지 않음).
+ */
+export const FromContentSchema = z.object({
+  sourceType: z.enum(["youtube", "blog"]),
+  url: z.string().url(),
+  videoId: z.string().nullable().default(null),
+  title: z.string().default(""),
+  author: z.string().default(""),
+  siteName: z.string().default(""),
+  thumbnail: z.string().default(""),
+  durationSec: z.number().nullable().default(null),
+  /** 유튜브 설명란 또는 블로그 본문 텍스트 */
+  description: z.string().default(""),
+  /** 설명란 챕터 (초, 라벨) */
+  chapters: z.array(z.object({ sec: z.number(), label: z.string() })).default([]),
+  /** 자막 줄 (초, 텍스트). 블로그면 빈 배열 */
+  transcript: z.array(z.object({ start: z.number(), text: z.string() })).default([]),
+  refresh: z.boolean().default(false),
+});
+export type FromContent = z.infer<typeof FromContentSchema>;

@@ -1,5 +1,5 @@
 import type { SearchResult } from "./schema.js";
-import { decodeHtmlEntities, extractChapters, parseIsoDuration, HttpError } from "./util.js";
+import { decodeHtmlEntities, extractChapters, parseIsoDuration, fetchWithTimeout, HttpError } from "./util.js";
 
 const API = "https://www.googleapis.com/youtube/v3";
 const UA =
@@ -33,7 +33,7 @@ export async function searchYoutube(query: string, max = 10): Promise<SearchResu
     videoDuration: "medium", // 4~20분: 요리 영상 대부분. 쇼츠·장편 제외
     key: apiKey(),
   });
-  const res = await fetch(`${API}/search?${params}`);
+  const res = await fetchWithTimeout(`${API}/search?${params}`);
   if (!res.ok) throw new HttpError(502, `YouTube search 실패: ${res.status} ${await res.text()}`);
   const data = (await res.json()) as {
     items: { id: { videoId: string }; snippet: { title: string; description: string; channelTitle: string; thumbnails: Record<string, { url: string }> } }[];
@@ -56,7 +56,7 @@ async function fetchDurations(ids: string[]): Promise<Map<string, number>> {
   const out = new Map<string, number>();
   if (ids.length === 0) return out;
   const params = new URLSearchParams({ part: "contentDetails", id: ids.join(","), key: apiKey() });
-  const res = await fetch(`${API}/videos?${params}`);
+  const res = await fetchWithTimeout(`${API}/videos?${params}`);
   if (!res.ok) return out;
   const data = (await res.json()) as { items: { id: string; contentDetails: { duration: string } }[] };
   for (const it of data.items) {
@@ -68,7 +68,7 @@ async function fetchDurations(ids: string[]): Promise<Map<string, number>> {
 
 export async function getVideoDetails(videoId: string): Promise<VideoDetails> {
   const params = new URLSearchParams({ part: "snippet,contentDetails", id: videoId, key: apiKey() });
-  const res = await fetch(`${API}/videos?${params}`);
+  const res = await fetchWithTimeout(`${API}/videos?${params}`);
   if (!res.ok) throw new HttpError(502, `YouTube videos 실패: ${res.status}`);
   const data = (await res.json()) as {
     items: { id: string; snippet: { title: string; description: string; channelTitle: string; thumbnails: Record<string, { url: string }> }; contentDetails: { duration: string } }[];
@@ -94,7 +94,7 @@ export type TranscriptLine = { start: number; dur: number; text: string };
  */
 export async function fetchTranscript(videoId: string): Promise<TranscriptLine[]> {
   try {
-    const page = await fetch(`https://www.youtube.com/watch?v=${videoId}&hl=ko`, {
+    const page = await fetchWithTimeout(`https://www.youtube.com/watch?v=${videoId}&hl=ko`, {
       headers: { "User-Agent": UA, "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.5" },
     });
     const html = await page.text();
@@ -107,7 +107,7 @@ export async function fetchTranscript(videoId: string): Promise<TranscriptLine[]
       tracks[0];
     if (!pick) return [];
     const url = pick.baseUrl.replace(/\\u0026/g, "&");
-    const xml = await (await fetch(url, { headers: { "User-Agent": UA } })).text();
+    const xml = await (await fetchWithTimeout(url, { headers: { "User-Agent": UA } })).text();
     return parseTimedText(xml);
   } catch {
     return [];

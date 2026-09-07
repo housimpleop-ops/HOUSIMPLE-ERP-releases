@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Stack, useLocalSearchParams } from "expo-router";
-import { recipeByUrl, recipeByYoutube, formatSec } from "../../lib/api";
-import type { RecipeDoc } from "../../lib/types";
+import { formatSec } from "../../lib/api";
+import { useRecipe, STAGE_LABEL } from "../../lib/useRecipe";
+import { HiddenExtractor } from "../../components/HiddenExtractor";
 import { StepPlayer, type StepPlayerHandle } from "../../components/StepPlayer";
 import { StepList } from "../../components/StepList";
 import { IngredientList } from "../../components/IngredientList";
@@ -14,32 +15,11 @@ import { colors } from "../../lib/theme";
  */
 export default function RecipeScreen() {
   const { id, url } = useLocalSearchParams<{ id: string; url?: string }>();
-  const [doc, setDoc] = useState<RecipeDoc | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { doc, error, stage, job, onExtracted, reload } = useRecipe({ id, url });
   const [tab, setTab] = useState<"steps" | "ingredients">("steps");
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [timer, setTimer] = useState<{ left: number; label: string } | null>(null);
   const player = useRef<StepPlayerHandle>(null);
-
-  const load = useCallback(
-    async (refresh = false) => {
-      setLoading(true);
-      setError(null);
-      try {
-        const d = id === "url" && url ? await recipeByUrl(url, refresh) : await recipeByYoutube(id, refresh);
-        setDoc(d);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "불러오기 실패");
-      } finally {
-        setLoading(false);
-      }
-    },
-    [id, url],
-  );
-  useEffect(() => {
-    load();
-  }, [load]);
 
   // 재생 위치 → 활성 단계
   const onTime = useCallback(
@@ -71,11 +51,13 @@ export default function RecipeScreen() {
     if (timer && timer.left === 0) Alert.alert("⏱ 타이머 종료", `${timer.label} 시간이 끝났습니다`);
   }, [timer]);
 
-  if (loading) {
+  if (stage) {
     return (
       <View style={styles.center}>
+        {/* 폰이 직접 페이지를 읽는 동안에만 렌더된다 */}
+        <HiddenExtractor job={job} onResult={onExtracted} />
         <ActivityIndicator size="large" color={colors.accent} />
-        <Text style={styles.loadingText}>{id === "url" ? "본문을 읽고 정리하는 중…" : "자막을 읽고 정리하는 중…"}</Text>
+        <Text style={styles.loadingText}>{STAGE_LABEL[stage]}</Text>
         <Text style={styles.loadingSub}>처음 정리하는 레시피는 20~40초 걸립니다</Text>
       </View>
     );
@@ -84,7 +66,7 @@ export default function RecipeScreen() {
     return (
       <View style={styles.center}>
         <Text style={styles.error}>{error ?? "레시피를 불러오지 못했습니다"}</Text>
-        <Pressable onPress={() => load()} style={styles.btn}><Text style={styles.btnText}>다시 시도</Text></Pressable>
+        <Pressable onPress={() => reload(false)} style={styles.btn}><Text style={styles.btnText}>다시 시도</Text></Pressable>
       </View>
     );
   }
@@ -146,7 +128,7 @@ export default function RecipeScreen() {
           </View>
         ) : null}
 
-        <Pressable onPress={() => load(true)} style={styles.refresh}>
+        <Pressable onPress={() => reload(true)} style={styles.refresh}>
           <Text style={styles.refreshText}>다시 정리하기 (AI 재분석)</Text>
         </Pressable>
       </ScrollView>

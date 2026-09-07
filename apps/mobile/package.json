@@ -17,6 +17,7 @@
     "react-native-youtube-iframe": "^2.4.1"
   },
   "devDependencies": {
+    "@types/node": "^26.4.1",
     "@types/react": "~19.2.2",
     "typescript": "~6.0.3"
   },
@@ -25,7 +26,8 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
+    "test": "node --test lib/*.test.ts"
   },
   "private": true
 }

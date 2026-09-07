@@ -4,11 +4,11 @@ import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { serve } from "@hono/node-server";
 import { searchYoutube, getVideoDetails, fetchTranscript, transcriptToText, extractChapters } from "./youtube.js";
-import { search10000Recipe, extractBlog } from "./blog.js";
+import { search10000Recipe, searchNaverBlog, extractBlog } from "./blog.js";
 import { structureRecipe } from "./llm.js";
 import { getRecipe, saveRecipe, listRecent, getSearchCache, putSearchCache } from "./db.js";
 import { extractYoutubeId, HttpError } from "./util.js";
-import type { RecipeDoc, SearchResult } from "./schema.js";
+import { FromContentSchema, type RecipeDoc, type SearchResult } from "./schema.js";
 
 const app = new Hono();
 app.use("*", logger());
@@ -36,7 +36,11 @@ app.get("/search", async (c) => {
 
   const jobs: Promise<SearchResult[]>[] = [];
   if (source === "youtube" || source === "all") jobs.push(searchYoutube(q));
-  if (source === "blog" || source === "all") jobs.push(search10000Recipe(q).catch(() => []));
+  if (source === "blog" || source === "all") {
+    // 한 곳이 실패해도 나머지 결과는 살린다
+    jobs.push(search10000Recipe(q).catch(() => []));
+    jobs.push(searchNaverBlog(q).catch(() => []));
+  }
   const results = (await Promise.all(jobs)).flat();
   putSearchCache(key, results);
   return c.json({ query: q, results, cached: false });
@@ -110,6 +114,60 @@ app.post("/recipe/url", async (c) => {
   };
   saveRecipe(doc);
   return c.json({ ...doc, cached: false, usage });
+});
+
+/**
+ * POST /recipe/from-content — 폰이 직접 긁어온 원문을 정리만 한다.
+ * 서버가 유튜브·블로그에 접속하지 않으므로 서버 IP 차단과 무관하다.
+ */
+app.post("/recipe/from-content", async (c) => {
+  const parsed = FromContentSchema.safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) throw new HttpError(400, `잘못된 요청: ${parsed.error.issues[0]?.message ?? ""}`);
+  const p = parsed.data;
+
+  const id = p.sourceType === "youtube" && p.videoId ? `yt:${p.videoId}` : `url:${p.url}`;
+  const hit = p.refresh ? null : getRecipe(id);
+  if (hit) return c.json({ ...hit, cached: true });
+
+  if (!p.description.trim() && p.transcript.length === 0) {
+    throw new HttpError(422, "원문을 읽지 못했습니다 (내용이 비어 있음)");
+  }
+
+  const chapters = p.chapters.length > 0 ? p.chapters : extractChapters(p.description);
+  const { recipe, usage } = await structureRecipe({
+    sourceType: p.sourceType,
+    title: p.title,
+    author: p.author,
+    description: p.description,
+    chapters,
+    transcript: transcriptToText(p.transcript.map((t) => ({ start: t.start, dur: 0, text: t.text }))),
+    durationSec: p.durationSec,
+  });
+
+  const doc: RecipeDoc = {
+    id,
+    source: {
+      type: p.sourceType,
+      url: p.url,
+      videoId: p.videoId,
+      siteName: p.siteName || (p.sourceType === "youtube" ? "YouTube" : new URL(p.url).hostname),
+      author: p.author,
+      thumbnail: p.thumbnail,
+      durationSec: p.durationSec,
+      hasTranscript: p.transcript.length > 0,
+    },
+    recipe,
+    createdAt: new Date().toISOString(),
+  };
+  saveRecipe(doc);
+  return c.json({ ...doc, cached: false, usage });
+});
+
+/** GET /recipe/cached/:id — 캐시에 있으면 반환, 없으면 404 (앱이 긁기 전에 먼저 확인) */
+app.get("/recipe/cached/:id", (c) => {
+  const doc = getRecipe(decodeURIComponent(c.req.param("id")));
+  if (!doc) throw new HttpError(404, "캐시 없음");
+  return c.json({ ...doc, cached: true });
 });
 
 /** GET /recipes/recent — 최근 정리한 레시피 (홈 화면용) */

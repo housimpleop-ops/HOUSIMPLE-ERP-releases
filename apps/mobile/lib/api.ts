@@ -48,3 +48,13 @@ export function formatSec(sec: number): string {
   const s = Math.floor(sec % 60);
   return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
 }
+
+/** 폰이 긁어온 원문을 서버로 보내 Claude 정리만 요청 */
+export function recipeFromContent(payload: Record<string, unknown>) {
+  return request<RecipeDoc>(`/recipe/from-content`, { method: "POST", body: JSON.stringify(payload) });
+}
+
+/** 서버 캐시에 이미 정리된 결과가 있는지 확인 (없으면 예외) */
+export function cachedRecipe(id: string) {
+  return request<RecipeDoc>(`/recipe/cached/${encodeURIComponent(id)}`);
+}
